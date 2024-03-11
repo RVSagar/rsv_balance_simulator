@@ -13,8 +13,6 @@
 #include <ros/ros.h>
 #include <sdf/sdf.hh>
 
-using namespace control_toolbox;
-
 namespace gazebo
 {
 
@@ -65,10 +63,9 @@ void GazeboRsvBalance::Load(physics::ModelPtr _parent, sdf::ElementPtr _sdf)
     this->gazebo_ros_->getParameter<double>(this->wheel_radius_, "wheelRadius");
   }
 
-  this->joints_.resize(3);
+  this->joints_.resize(2);
   this->joints_[LEFT] = this->gazebo_ros_->getJoint(this->parent_, "leftJoint", "left_joint");
   this->joints_[RIGHT] = this->gazebo_ros_->getJoint(this->parent_, "rightJoint", "right_joint");
-  this->joints_[2] = this->gazebo_ros_->getJoint(this->parent_, "leansteerJoint", "leansteer_joint");
 
   // Control loop timing
   if (this->update_rate_ > 0.0)
@@ -141,54 +138,6 @@ void GazeboRsvBalance::Load(physics::ModelPtr _parent, sdf::ElementPtr _sdf)
   this->tilt_desired_ = 0;
   this->u_control_ = this->state_control_.getControl();
 
-  this->integral_ = 0.0;
-  this->psi_integral_ = 0.0;
-  this->leansteer_ddr = 0.0;
-  this->pitch_des = 0.0;
-  this->kp_theta_gain = 1000.0;
-  this->kd_theta_gain = 30.0;
-  this->ki_theta_gain = 0.0;
-
-  this->kp_psi = 249.88;
-  this->ki_psi = 51.477;
-  this->kff_psi = -1.2411;
-
-  this->psi_i_max = 100.0;
-  this->psi_i_min = -100.0; 
-
-  this->tau_in_yaw = 0.0;
-
-  // Initialize ros, if it has not already bee initialized.
-  if (!ros::isInitialized())
-  {
-    int argc = 0;
-    char **argv = NULL;
-    ros::init(argc, argv, "gazebo_joint_torsional_spring_plugin",
-    ros::init_options::NoSigintHandler);
-  }
-
-  // Create our ROS node. This acts in a similar manner to
-  // the Gazebo node
-  this->rosNode.reset(new ros::NodeHandle("gazebo_segway_controllers"));
-
-  ddReconfigure_.reset(new ddynamic_reconfigure::DDynamicReconfigure(*this->rosNode) );
-  ddReconfigure_->RegisterVariable(&leansteer_ddr, "leansteer_ddr", -0.2, 0.2);
-  ddReconfigure_->RegisterVariable(&pitch_des, "pitch_des", -0.1, 0.1);
-  ddReconfigure_->RegisterVariable(&kp_theta_gain, "kp_theta", -1000, 1000);
-  ddReconfigure_->RegisterVariable(&kd_theta_gain, "kd_theta", -1000, 1000);
-  ddReconfigure_->RegisterVariable(&ki_theta_gain, "ki_theta", -1000, 1000);
-  ddReconfigure_->RegisterVariable(&kp_psi, "kp_psi", -1000, 1000);
-  ddReconfigure_->RegisterVariable(&ki_psi, "ki_psi", -1000, 1000);
-  ddReconfigure_->RegisterVariable(&kff_psi, "kff_psi", -1000, 1000);
-  ddReconfigure_->RegisterVariable(&psi_i_max, "psi_i_max", -50, 50);
-  ddReconfigure_->RegisterVariable(&psi_i_min, "psi_i_min", -50, 50);
-  ddReconfigure_->RegisterVariable(&reset_vars, "reset_vars", 0, 1);
-  ddReconfigure_->PublishServicesTopics();
-
-
-  this->yaw_rate_pid.initPid(this->kp_psi, this->ki_psi, 0.0, this->psi_i_max, this->psi_i_min, true);
-
-
   this->alive_ = true;
   // start custom queue
   this->callback_queue_thread_ = boost::thread(boost::bind(&GazeboRsvBalance::QueueThread, this));
@@ -207,9 +156,6 @@ void GazeboRsvBalance::resetVariables()
   this->rot_desired_ = 0;
   this->odom_offset_pos_ = ignition::math::Vector3d(0, 0, 0);
   this->odom_offset_rot_ = ignition::math::Vector3d(0, 0, 0);
-  this->integral_ = 0.0;
-  this->psi_integral_ = 0.0;
-
 }
 
 /*!
@@ -286,7 +232,7 @@ void GazeboRsvBalance::cmdTiltCallback(const std_msgs::Float64::ConstPtr& cmd_ti
 }
 
 /*!
-* \brief Gets pitch angle values directly from Gazebo world
+* \brief s pitch angle values directly from Gazebo world
 */
 void GazeboRsvBalance::updateIMU()
 {
@@ -319,10 +265,6 @@ void GazeboRsvBalance::updateOdometry()
 
   this->feedback_v_ = this->wheel_radius_/2.0 * (ang_velocity_right + ang_velocity_left);
   this->feedback_w_ = this->wheel_radius_/this->wheel_separation_ * (ang_velocity_right - ang_velocity_left);
-
-  if (fabs(this->feedback_w_) < 0.005){
-    this->feedback_w_ = 0.0;
-  }
 
   if (odom_source_ == WORLD)
   {
@@ -404,7 +346,7 @@ void GazeboRsvBalance::publishWheelJointState()
   joint_state.name.resize(joints_.size());
   joint_state.position.resize(joints_.size());
 
-  for (int i = 0; i < 3; i++)
+  for (int i = 0; i < 2; i++)
   {
     physics::JointPtr joint = this->joints_[i];
     ignition::math::Angle angle = joint->Position(0);
@@ -428,10 +370,6 @@ void GazeboRsvBalance::Reset()
   this->imu_dpitch_ = 0;
   this->feedback_v_ = 0;
   this->feedback_w_ = 0;
-
-  this->tau_in = 0.0;
-  this->tau_in_yaw = 0.0;
-  this->psi_des = 0.0;
 }
 
 /*!
@@ -441,9 +379,6 @@ void GazeboRsvBalance::UpdateChild()
 {
   common::Time current_time = this->parent_->GetWorld()->SimTime();
   double seconds_since_last_update = (current_time - this->last_update_time_).Double();
-
-  //gains might change from dynamic reconfigure
-  this->yaw_rate_pid.setGains(this->kp_psi, this->ki_psi, 0.0, this->psi_i_max, this->psi_i_min, true);
 
   // Only execute control loop on specified rate
   if (seconds_since_last_update >= this->update_period_)
@@ -457,88 +392,42 @@ void GazeboRsvBalance::UpdateChild()
     this->publishOdometry();
     this->publishWheelJointState();
 
-    // double x_desired[4];
-    // x_desired[balance_control::theta] = tilt_desired_;
-    // x_desired[balance_control::dx] = x_desired_;
-    // x_desired[balance_control::dphi] = rot_desired_;
-    // x_desired[balance_control::dtheta] = 0;
+    double x_desired[4];
+    x_desired[balance_control::theta] = tilt_desired_;
+    x_desired[balance_control::dx] = x_desired_;
+    x_desired[balance_control::dphi] = rot_desired_;
+    x_desired[balance_control::dtheta] = 0;
 
-    // double y_fbk[4];
-    // y_fbk[balance_control::theta] = this->imu_pitch_;
-    // y_fbk[balance_control::dx] = this->feedback_v_;
-    // y_fbk[balance_control::dphi] = this->feedback_w_;
-    // y_fbk[balance_control::dtheta] = this->imu_dpitch_;
+    double y_fbk[4];
+    y_fbk[balance_control::theta] = this->imu_pitch_;
+    y_fbk[balance_control::dx] = this->feedback_v_;
+    y_fbk[balance_control::dphi] = this->feedback_w_;
+    y_fbk[balance_control::dtheta] = this->imu_dpitch_;
 
-    // this->state_control_.stepControl(seconds_since_last_update, x_desired, y_fbk);
-
-    //pitch controller
-    this->tau_in = this->kp_theta_gain*(this->imu_pitch_ - this->pitch_des) + this->kd_theta_gain*this->imu_dpitch_ + this->ki_theta_gain*integral_;
-    this->integral_ += (this->imu_pitch_ - this->pitch_des)*0.001;
-
-    //Yaw rate controller
-    double leansteer_angle = this->joints_[2]->Position(0);
-
-    if (leansteer_angle < -0.001 || leansteer_angle > 0.001) {
-      psi_des = -19375.57265247170*pow(leansteer_angle,7.0) + 
-                  875.0543520038016*pow(leansteer_angle,6.0) +
-                    3331.072334835111*pow(leansteer_angle,5.0)
-                    -105.0974923807901*pow(leansteer_angle,4.0)
-                    -159.6569756459342*pow(leansteer_angle,3.0) +
-                    2.256869003432841*pow(leansteer_angle,2.0)
-                    -2.452693575434862*leansteer_angle
-                    + 0.0087;
-    }
-    else {
-      psi_des = 0.0;
-    }
-
-    // tau_in_yaw = this->kp_psi*(psi_des - this->feedback_w_) + this->ki_psi*this->psi_integral_ + this->kff_psi*psi_des;
-    // this->psi_integral_ += (psi_des - this->feedback_w_)*0.001;
-
-    double psi_error = psi_des - this->feedback_w_;
-
-    tau_in_yaw = this->yaw_rate_pid.computeCommand(psi_error, ros::Duration(this->update_period_)) + this->kff_psi*psi_des;
-
-    /*ROS_INFO_STREAM("yaw_rate " << this->feedback_w_);
-    ROS_INFO_STREAM("psi_des " << this->psi_des);
-    ROS_INFO_STREAM("psi_error " << psi_error);
-    ROS_INFO_STREAM("tau_in_yaw " << this->tau_in_yaw);
-    ROS_INFO_STREAM("tau_in " << this->tau_in);
-    ROS_INFO_STREAM("imu_pitch " << this->imu_pitch_);*/
-
-
+    this->state_control_.stepControl(seconds_since_last_update, x_desired, y_fbk);
 
     this->last_update_time_ += common::Time(this->update_period_);
   }
 
-
-
-
-  this->joints_[LEFT]->SetForce(0, -(this->tau_in-this->tau_in_yaw));
-  this->joints_[RIGHT]->SetForce(0, this->tau_in+this->tau_in_yaw);
-
-  // this->joints_[LEFT]->SetForce(0, -(this->tau_in));
-  // this->joints_[RIGHT]->SetForce(0, this->tau_in);
-
-  // switch (this->current_mode_)
-  // {
-  //   case BALANCE:
-
-
-  //     break;
-  //   case TRACTOR:
-  //     this->joints_[LEFT]->SetVelocity(0, -( (2.0*this->x_desired_ - this->rot_desired_*this->wheel_separation_)
-  //                                                                                       / (this->wheel_radius_*2.0)));
-  //     this->joints_[RIGHT]->SetVelocity(0, ( (2.0*this->x_desired_ + this->rot_desired_*this->wheel_separation_)
-  //                                                                                       / (this->wheel_radius_*2.0)));
-  //     break;
-  //   case PARK:
-  //     this->joints_[LEFT]->SetVelocity(0, 0);
-  //     this->joints_[RIGHT]->SetVelocity(0, 0);
-  //     this->joints_[LEFT]->SetForce(0, 0);
-  //     this->joints_[RIGHT]->SetForce(0, 0);
-  //     break;
-  // };
+  switch (this->current_mode_)
+  {
+    case BALANCE:
+      // this->joints_[LEFT]->SetForce(0, -this->u_control_[balance_control::tauL]);
+      // this->joints_[RIGHT]->SetForce(0, this->u_control_[balance_control::tauR]);
+      break;
+    case TRACTOR:
+      this->joints_[LEFT]->SetVelocity(0, -( (2.0*this->x_desired_ - this->rot_desired_*this->wheel_separation_)
+                                                                                        / (this->wheel_radius_*2.0)));
+      this->joints_[RIGHT]->SetVelocity(0, ( (2.0*this->x_desired_ + this->rot_desired_*this->wheel_separation_)
+                                                                                        / (this->wheel_radius_*2.0)));
+      break;
+    case PARK:
+      this->joints_[LEFT]->SetVelocity(0, 0);
+      this->joints_[RIGHT]->SetVelocity(0, 0);
+      this->joints_[LEFT]->SetForce(0, 0);
+      this->joints_[RIGHT]->SetForce(0, 0);
+      break;
+  };
 }
 
 /*!

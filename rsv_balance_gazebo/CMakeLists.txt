@@ -12,6 +12,8 @@ find_package(catkin REQUIRED COMPONENTS
   rsv_balance_msgs
   sensor_msgs
   std_msgs
+  control_toolbox
+  ddynamic_reconfigure
 )
 
 find_package(gazebo REQUIRED)
@@ -29,11 +31,14 @@ catkin_package(
     rsv_balance_msgs
     sensor_msgs
     std_msgs
+    control_toolbox
 )
 
+
+
 add_library(gazebo_rsv_balance src/gazebo_rsv_balance.cpp)
-target_link_libraries(gazebo_rsv_balance ${catkin_LIBRARIES} ${GAZEBO_LIBRARIES} rsv_balance_gazebo_control)
-add_dependencies(gazebo_rsv_balance rsv_balance_msgs rsv_balance_gazebo_control)
+target_link_libraries(gazebo_rsv_balance ${catkin_LIBRARIES} ${GAZEBO_LIBRARIES})
+add_dependencies(gazebo_rsv_balance rsv_balance_msgs)
 
 install(
   TARGETS gazebo_rsv_balance

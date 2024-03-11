@@ -34,12 +34,6 @@
 
 #include "rsv_balance_gazebo_control/balance_gazebo_control.h"
 
-#include <ddynamic_reconfigure/ddynamic_reconfigure.h>
-
-#include <control_toolbox/pid.h>
-
-using namespace control_toolbox;
-
 namespace gazebo
 {
 
@@ -136,8 +130,8 @@ class GazeboRsvBalance: public ModelPlugin
     double imu_dpitch_;
     double feedback_v_;
     double feedback_w_;
-    ignition::math::Vector3d odom_offset_pos_;
-    ignition::math::Vector3d odom_offset_rot_;
+    math::Vector3 odom_offset_pos_;
+    math::Vector3 odom_offset_rot_;
 
     void resetVariables();
     nav_msgs::Odometry odom_;
@@ -153,37 +147,9 @@ class GazeboRsvBalance: public ModelPlugin
     common::Time last_update_time_;
     balance_control::BalanceControl state_control_;
     double *u_control_;
-
-    double integral_;
-    double psi_integral_;
-
-    std::shared_ptr<ddynamic_reconfigure::DDynamicReconfigure> ddReconfigure_;
-    std::unique_ptr<ros::NodeHandle> rosNode;
-    double leansteer_ddr;
-    double pitch_des;
-
-    //start off very stiff, change through dynamic reconfigure
-    double kp_theta_gain;
-    double kd_theta_gain;
-    double ki_theta_gain;
-
-    double kp_psi = 249.88;
-    double ki_psi = 51.477;
-    double kff_psi = -1.2411;
-    double psi_i_max = 1.0;
-    double psi_i_min = -1.0; 
-
-    //gains get updated later
-    control_toolbox::Pid yaw_rate_pid;
-
-    double tau_in = 0.0;
-    double tau_in_yaw = 0.0;
-    double psi_des = 0.0;
-
-    int reset_vars = 0;
-
 };
 
 }  // namespace gazebo
 
 #endif  // GAZEBO_RSV_BALANCE_GAZEBO_RSV_BALANCE_H
+

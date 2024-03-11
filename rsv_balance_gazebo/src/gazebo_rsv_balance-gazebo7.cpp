@@ -80,7 +80,7 @@ void GazeboRsvBalance::Load(physics::ModelPtr _parent, sdf::ElementPtr _sdf)
     ROS_WARN("RsvBalancePlugin - Update rate < 0. Update period set to: 0.1. ");
     this->update_period_ = 0.1;
   }
-  this->last_update_time_ = this->parent_->GetWorld()->SimTime();
+  this->last_update_time_ = this->parent_->GetWorld()->GetSimTime();
 
 
   // Command velocity subscriber
@@ -184,7 +184,6 @@ void GazeboRsvBalance::Load(physics::ModelPtr _parent, sdf::ElementPtr _sdf)
   ddReconfigure_->RegisterVariable(&psi_i_min, "psi_i_min", -50, 50);
   ddReconfigure_->RegisterVariable(&reset_vars, "reset_vars", 0, 1);
   ddReconfigure_->PublishServicesTopics();
-
 
   this->yaw_rate_pid.initPid(this->kp_psi, this->ki_psi, 0.0, this->psi_i_max, this->psi_i_min, true);
 
@@ -291,10 +290,10 @@ void GazeboRsvBalance::cmdTiltCallback(const std_msgs::Float64::ConstPtr& cmd_ti
 void GazeboRsvBalance::updateIMU()
 {
   // Store pitch and dpitch
-  ignition::math::Pose3d pose = this->parent_->WorldPose();
-  ignition::math::Vector3d veul = this->parent_->RelativeAngularVel();
-  this->imu_pitch_ = pose.Rot().Pitch();
-  this->imu_dpitch_ = veul.Y();
+  math::Pose pose = this->parent_->GetWorldPose();
+  math::Vector3 veul = this->parent_->GetRelativeAngularVel();
+  this->imu_pitch_ = pose.rot.GetPitch();
+  this->imu_dpitch_ = veul.y;
 }
 
 /*!
@@ -303,9 +302,9 @@ void GazeboRsvBalance::updateIMU()
 /** @todo Actually implement it */
 void GazeboRsvBalance::resetOdometry()
 {
-  ignition::math::Pose3d pose = this->parent_->WorldPose();
-  this->odom_offset_pos_ = pose.Pos();
-  this->odom_offset_rot_.Z() = pose.Rot().Yaw();
+  math::Pose pose = this->parent_->GetWorldPose();
+  this->odom_offset_pos_ = ignition::math::Vector3d(pose.pos.x, pose.pos.y, pose.pos.z) ;
+  this->odom_offset_rot_.Z() = pose.rot.GetYaw();
 }
 
 /*!
@@ -326,26 +325,26 @@ void GazeboRsvBalance::updateOdometry()
 
   if (odom_source_ == WORLD)
   {
-    ignition::math::Pose3d pose = this->parent_->WorldPose();
-    ignition::math::Vector3d velocity_linear = this->parent_->RelativeLinearVel();
-    ignition::math::Vector3d velocity_angular = this->parent_->RelativeAngularVel();
+    math::Pose pose = this->parent_->GetWorldPose();
+    math::Vector3 velocity_linear = this->parent_->GetRelativeLinearVel();
+    math::Vector3 velocity_angular = this->parent_->GetRelativeAngularVel();
     // TODO(vmatos): reset odometry by setting an offset in world
     // this->odom_.pose.pose.position.x = pose.pos[0] - this->odom_offset_pos_[0];
     // this->odom_.pose.pose.position.y = pose.pos[1] - this->odom_offset_pos_[1];
     // this->odom_.pose.pose.position.z = pose.pos[2] - this->odom_offset_pos_[2];
-    this->odom_.pose.pose.position.x = pose.Pos()[0];
-    this->odom_.pose.pose.position.y = pose.Pos()[1];
-    this->odom_.pose.pose.position.z = pose.Pos()[2];
+    this->odom_.pose.pose.position.x = pose.pos[0];
+    this->odom_.pose.pose.position.y = pose.pos[1];
+    this->odom_.pose.pose.position.z = pose.pos[2];
     // tf::Quaternion qt;
-    // qt.setRPY(pose.rot.Roll(), pose.rot.Pitch(), pose.rot.Yaw() - this->odom_offset_rot_[2]);
-    // qt.setRPY(pose.rot.Roll(), pose.rot.Pitch(), pose.rot.Yaw());
-    this->odom_.pose.pose.orientation.x = pose.Rot().X();
-    this->odom_.pose.pose.orientation.y = pose.Rot().Y();
-    this->odom_.pose.pose.orientation.z = pose.Rot().Z();
-    this->odom_.pose.pose.orientation.w = pose.Rot().W();
+    // qt.setRPY(pose.rot.GetRoll(), pose.rot.GetPitch(), pose.rot.GetYaw() - this->odom_offset_rot_[2]);
+    // qt.setRPY(pose.rot.GetRoll(), pose.rot.GetPitch(), pose.rot.GetYaw());
+    this->odom_.pose.pose.orientation.x = pose.rot.x;
+    this->odom_.pose.pose.orientation.y = pose.rot.y;
+    this->odom_.pose.pose.orientation.z = pose.rot.z;
+    this->odom_.pose.pose.orientation.w = pose.rot.w;
     this->odom_.twist.twist.linear.x = velocity_linear[0];
     this->odom_.twist.twist.linear.y = velocity_linear[1];
-    this->odom_.twist.twist.angular.z = velocity_angular.Z();
+    this->odom_.twist.twist.angular.z = velocity_angular.z;
   }
   else
   {
@@ -407,7 +406,7 @@ void GazeboRsvBalance::publishWheelJointState()
   for (int i = 0; i < 3; i++)
   {
     physics::JointPtr joint = this->joints_[i];
-    ignition::math::Angle angle = joint->Position(0);
+    math::Angle angle = joint->GetAngle(0);
     joint_state.name[i] = joint->GetName();
     joint_state.position[i] = angle.Radian();
   }
@@ -422,7 +421,7 @@ void GazeboRsvBalance::Reset()
   this->resetVariables();
   this->state_control_.resetControl();
   // Reset control
-  this->last_update_time_ = this->parent_->GetWorld()->SimTime();
+  this->last_update_time_ = this->parent_->GetWorld()->GetSimTime();
   this->current_mode_ = BALANCE;
   this->imu_pitch_ = 0;
   this->imu_dpitch_ = 0;
@@ -439,7 +438,7 @@ void GazeboRsvBalance::Reset()
 */
 void GazeboRsvBalance::UpdateChild()
 {
-  common::Time current_time = this->parent_->GetWorld()->SimTime();
+  common::Time current_time = this->parent_->GetWorld()->GetSimTime();
   double seconds_since_last_update = (current_time - this->last_update_time_).Double();
 
   //gains might change from dynamic reconfigure
@@ -476,7 +475,7 @@ void GazeboRsvBalance::UpdateChild()
     this->integral_ += (this->imu_pitch_ - this->pitch_des)*0.001;
 
     //Yaw rate controller
-    double leansteer_angle = this->joints_[2]->Position(0);
+    double leansteer_angle = this->joints_[2]->GetAngle(0).Radian();
 
     if (leansteer_angle < -0.001 || leansteer_angle > 0.001) {
       psi_des = -19375.57265247170*pow(leansteer_angle,7.0) + 
@@ -499,12 +498,12 @@ void GazeboRsvBalance::UpdateChild()
 
     tau_in_yaw = this->yaw_rate_pid.computeCommand(psi_error, ros::Duration(this->update_period_)) + this->kff_psi*psi_des;
 
-    /*ROS_INFO_STREAM("yaw_rate " << this->feedback_w_);
+    ROS_INFO_STREAM("yaw_rate " << this->feedback_w_);
     ROS_INFO_STREAM("psi_des " << this->psi_des);
     ROS_INFO_STREAM("psi_error " << psi_error);
     ROS_INFO_STREAM("tau_in_yaw " << this->tau_in_yaw);
     ROS_INFO_STREAM("tau_in " << this->tau_in);
-    ROS_INFO_STREAM("imu_pitch " << this->imu_pitch_);*/
+    ROS_INFO_STREAM("imu_pitch " << this->imu_pitch_);
 
 
 
